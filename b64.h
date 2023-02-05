@@ -33,5 +33,15 @@ void wtf_pls_fix();
 
 void b64_demo();
 
+void str2bytes(char *str, byte *bytes, int len);
+
+void bytes2str(byte *bytes, char *str, int len);
+
+void print_help();
+
+void parse_args(char **in, char **out, bool *enc, bool *from_file, bool *to_file, int *buffer_size, int argc, char *argv[]);
+
+void main(int argc, char *argv[]);
+
 
 #endif // BASE64_H_

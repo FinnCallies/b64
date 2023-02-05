@@ -231,7 +231,29 @@ void bytes2str(byte *bytes, char *str, int len)
     }
 }
 
-void parse_args(char **in, char **out, bool *enc, int *buffer_size, int argc, char *argv[])
+void print_help()
+{
+    printf("Usage: b64 [-e|-d] [-f input.txt|-i input_data] -o output.txt -b 8192\n\n");
+    printf("Mandatory Options to either input stream directly (-i) or from file (-f):\n");
+    printf("\t-i input.txt\tRead from command arguments\n");
+    printf("\t-f input.txt\tRead input from file\n\n");
+    printf("Optional Options:\n");
+    printf("\t-e\t\tEncode input (standard)\n");
+    printf("\t-d\t\tDecode input\n");
+    printf("\t-o output.txt\tWrite output to file instead of console output\n");
+    printf("\t-b\t\tSet buffer size in bytes (standard: 4096)\n");
+    printf("\t-h\t\tPrint this help message\n");
+    printf("\n");
+    printf("Edge Cases:\n");
+    printf("\tIf no -e or -d is specified, the program will encode the input\n");
+    printf("\tIf no -o is specified, the program will output to console\n");
+    printf("\tIf no -b is specified, the program will use a buffer size of 4096\n");
+    printf("\tIf no -f or -i is specified, the program will exit\n");
+    printf("\tIf both -f and -i are specified, the option specified last is used\n");
+    printf("\tIf both -e and -d are specified, the option specified last is used\n");
+}
+
+void parse_args(char **in, char **out, bool *enc, bool *from_file, bool *to_file, int *buffer_size, int argc, char *argv[])
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "-e") == 0) {
@@ -241,17 +263,28 @@ void parse_args(char **in, char **out, bool *enc, int *buffer_size, int argc, ch
         } else if (strcmp(argv[i], "-f") == 0) {
             if (i + 1 < argc) {
                 *in = argv[i + 1];
+                *from_file = true;
                 i++;
             } else {
-                printf("ERROR: No input file specified\n");
+                fprintf(stderr, "ERROR: No input file specified\n");
+                exit(1);
+            }
+        } else if (strcmp(argv[i], "-i") == 0) {
+            if (i + 1 < argc) {
+                *in = argv[i + 1];
+                *from_file = false;
+                i++;
+            } else {
+                fprintf(stderr, "ERROR: No input stream specified\n");
                 exit(1);
             }
         } else if (strcmp(argv[i], "-o") == 0) {
             if (i + 1 < argc) {
                 *out = argv[i + 1];
+                *to_file = true;
                 i++;
             } else {
-                printf("ERROR: No output file specified\n");
+                fprintf(stderr, "ERROR: No output file specified\n");
                 exit(1);
             }
         } else if (strcmp(argv[i], "-b") == 0) {
@@ -259,37 +292,44 @@ void parse_args(char **in, char **out, bool *enc, int *buffer_size, int argc, ch
                 *buffer_size = atoi(argv[i + 1]);
                 i++;
             } else {
-                printf("ERROR: No buffer size specified\n");
+                fprintf(stderr, "ERROR: No buffer size specified\n");
                 exit(1);
             }
+        } else if (strcmp(argv[i], "-h") == 0) {
+            print_help();
+            exit(0);
         } else {
-            printf("ERROR: Invalid argument\n");
+            fprintf(stderr, "ERROR: Invalid argument\n");
             exit(1);
         }
     }
 }
 
-// b64 [-e/-d] -f input.txt -o output.txt -b 8192
 void main(int argc, char *argv[])
 {
     FILE *file;
     char *filename = NULL;
     char *buffer = NULL;
     bool encode = true;
+    bool from_file = false;
+    bool to_file = false;
     char *input_file = NULL;
     char *output_file = NULL;
     int buffer_size = 4096;
+    int input_len = -1;
+    byte *input = NULL; 
+    byte *output = NULL;
+    int output_len = 0;
+    char *output_str = NULL; 
 
 
 
-    parse_args(&input_file, &output_file, &encode, &buffer_size, argc, argv);
-    if (input_file != NULL) {
-        printf("%s\n", input_file);
+    parse_args(&input_file, &output_file, &encode, &from_file, &to_file, &buffer_size, argc, argv);
+    if (input_file == NULL) {
+        fprintf(stderr, "ERROR: No input source specified\n");
+        printf("Use option -f to read from file or -i to read from command line\n");
+        exit(1);
     }
-    if (output_file != NULL) {
-        printf("%s\n", output_file);
-    }
-    printf("%d\n", buffer_size);
     if (buffer != NULL) {
         printf("%s\n", buffer);
     } else {
@@ -300,27 +340,29 @@ void main(int argc, char *argv[])
         }
     }
 
-    
-    
-    file = fopen(input_file, "r");
-    if (file == NULL) {
-        fprintf(stderr, "ERROR: File \"%s\" not found\n", input_file);
-        exit(1);
+
+    if (from_file) {
+        file = fopen(input_file, "r");
+        if (file == NULL) {
+            fprintf(stderr, "ERROR: File \"%s\" not found\n", input_file);
+            exit(1);
+        }
+        
+        fread(buffer, buffer_size, 1, file);
+
+        if (fclose(file) != 0) {
+            fprintf(stderr, "ERROR: File \"%s\" not closed\n", input_file);
+            exit(1);
+        }
+    } else {
+        strncpy(buffer, input_file, strlen(input_file));
     }
     
-    fread(buffer, buffer_size, 1, file);
 
-    if (fclose(file) != 0) {
-        fprintf(stderr, "ERROR: File \"%s\" not closed\n", input_file);
-        exit(1);
-    }
-
-
-    int input_len = strlen(buffer);
-    byte *input = (byte *)calloc(input_len, sizeof(byte));
+    input_len = strlen(buffer);
+    input = (byte *)calloc(input_len, sizeof(byte));
     str2bytes(buffer, input, input_len);
-    int output_len = 0;
-    byte *output = NULL;
+
 
     if (encode)
     {
@@ -335,24 +377,29 @@ void main(int argc, char *argv[])
         decode_base64(input, output, input_len);
     }
     
-    char *output_str = (char *)calloc(output_len, sizeof(char));
+
+    output_str = (char *)calloc(output_len, sizeof(char));
     bytes2str(output, output_str, output_len);
 
 
-    file = fopen(output_file, "w");
-    if (file == NULL) {
-        fprintf(stderr, "ERROR: File \"%s\" not found\n", output_file);
-        exit(1);
-    }
+    if (to_file) {
+        file = fopen(output_file, "w");
+        if (file == NULL) {
+            fprintf(stderr, "ERROR: File \"%s\" not found\n", output_file);
+            exit(1);
+        }
 
-    if (fwrite(output_str, output_len, 1, file) != 1) {
-        fprintf(stderr, "ERROR: Failed to write to file \"%s\"\n", output_file);
-        exit(1);
-    }
+        if (fwrite(output_str, output_len, 1, file) != 1) {
+            fprintf(stderr, "ERROR: Failed to write to file \"%s\"\n", output_file);
+            exit(1);
+        }
 
-    if (fclose(file) != 0) {
-        fprintf(stderr, "ERROR: File \"%s\" not closed\n", output_file);
-        exit(1);
+        if (fclose(file) != 0) {
+            fprintf(stderr, "ERROR: File \"%s\" not closed\n", output_file);
+            exit(1);
+        }
+    } else {
+        printf("%s\n", output_str);
     }
     
 
